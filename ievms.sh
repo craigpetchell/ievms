@@ -480,7 +480,7 @@ build_ievm_ie10() {
 # Build the IE11 virtual machine, reusing the Win7 VM always.
 build_ievm_ie11() {
     boot_auto_ga "IE11 - Win7"
-    install_ie_win7 "IE11 - Win7" "https://download.microsoft.com/download/D/4/5/D45C336D-3BB5-42E1-8BF9-21A0D8944604/IE11-Windows6.1-KB2841134-x86.cab" "2bb6e5056cf0ae15adad859475fe6f59"
+    install_ie_win7 "IE11 - Win7" "https://download.microsoft.com/download/9/0/8/908B5C6B-F23E-4DED-9906-77CE4E9E8528/EIE11_EN-US_MCM_WIN7.EXE" "65948d0197151d3e1b50e92cd468c2d6"
 }
 
 # ## Main Entry Point
