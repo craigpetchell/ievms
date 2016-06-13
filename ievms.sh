@@ -487,6 +487,8 @@ build_ievm_ie11() {
     install_ie_win7 "IE11 - Win7" "https://download.microsoft.com/download/9/2/F/92FC119C-3BCD-476C-B425-038A39625558/IE11-Windows6.1-x86-en-us.exe" "7d3479b9007f3c0670940c1b10a3615f"
 
     ie11_disable_first_run_wizard "IE11 - Win7"
+
+    install_java "IE11 - Win7"
 }
 
 ex_disable_uac_w7() {
@@ -506,6 +508,25 @@ ie11_disable_first_run_wizard() {
         "echo regedit /S C:\\Users\\${guest_user}\\Desktop\\ie11_disable_first_run_wizard.reg >C:\\Users\\${guest_user}\\ievms.bat"
     guest_control_exec "${1}" "cmd.exe" /c \
         "echo shutdown.exe /s /f /t 0 >>C:\\Users\\${guest_user}\\ievms.bat"
+    guest_control_exec "${1}" "schtasks.exe" /run /tn ievms
+
+    wait_for_shutdown "${1}"
+}
+
+install_java() {
+    local src="jre-8u91-windows-i586.exe"
+    local dest="C:\\Users\\${guest_user}\\Desktop\\${src}"
+
+    download "${src}" "http://javadl.oracle.com/webapps/download/AutoDL?BundleId=210183" "${src}" "b05522d5c65ed51329d74dd1e97b401f"
+
+    start_vm "${1}"
+    wait_for_guestcontrol "${1}"
+    copy_to_vm "${1}" "${src}" "${dest}"
+    guest_control_exec "${1}" "cmd.exe" /c \
+        "echo ${dest} /s >C:\\Users\\${guest_user}\\ievms.bat"
+    guest_control_exec "${1}" "cmd.exe" /c \
+        "echo shutdown.exe /s /f /t 0 >>C:\\Users\\${guest_user}\\ievms.bat"
+    #guest_control_exec "${1}" "cmd.exe" /c "C:\\Users\\${guest_user}\\ievms.bat"
     guest_control_exec "${1}" "schtasks.exe" /run /tn ievms
 
     wait_for_shutdown "${1}"
