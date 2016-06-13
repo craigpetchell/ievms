@@ -334,8 +334,8 @@ install_ie_win7() { # vm url md5
         "echo ${dest} /passive /norestart >C:\\Users\\${guest_user}\\ievms.bat"
     guest_control_exec "${1}" "cmd.exe" /c \
         "echo shutdown.exe /s /f /t 0 >>C:\\Users\\${guest_user}\\ievms.bat"
-    guest_control_exec "${1}" "cmd.exe" /c "C:\\Users\\${guest_user}\\ievms.bat"
-    #guest_control_exec "${1}" "schtasks.exe" /run /tn ievms
+    #guest_control_exec "${1}" "cmd.exe" /c "C:\\Users\\${guest_user}\\ievms.bat"
+    guest_control_exec "${1}" "schtasks.exe" /run /tn ievms
 
     wait_for_shutdown "${1}"
 }
@@ -488,6 +488,7 @@ build_ievm_ie11() {
 }
 
 ex_disable_uac_w7() {
+    download "deuac.iso" "https://raw.githubusercontent.com/tka/SeleniumBox/master/deuac.iso" "deuac.iso" "fb680c7aa6bbbe72b769482b1097c0c7"
     attach "${1}" "${ievms_home}/deuac.iso" "DeUAC iso"
     start_vm "${1}"
     wait_for_shutdown "${1}"
