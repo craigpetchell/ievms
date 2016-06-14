@@ -501,8 +501,15 @@ ex_disable_uac_w7() {
 
 ie11_disable_first_run_wizard() {
     #guest_control_exec "${1}" "cmd.exe" /c "robocopy E.\\ C:\\Windows\\PolicyDefinitions\\en-US InetRes.adml /B"
+    local reg_file="${ievms_home}/ie11_disable_first_run_wizard.reg"
+    if [ ! -e $reg_file ] ; then
+        printf "Windows Registry Editor Version 5.00\r\n\r\n" >$reg_file
+        printf "[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Internet Explorer\Main]\r\n" >>$reg_file
+        printf "\"DisableFirstRunCustomize\"=dword:00000001\r\n" >>$reg_file
+    fi
+
     start_vm "${1}"
-    wait_for_guestcontrol "${1}"
+    wait_for_guestcontrol "${1}"    
     copy_to_vm "${1}" "ie11_disable_first_run_wizard.reg" "C:\\Users\\${guest_user}\\Desktop\\ie11_disable_first_run_wizard.reg"
     guest_control_exec "${1}" "cmd.exe" /c \
         "echo regedit /S C:\\Users\\${guest_user}\\Desktop\\ie11_disable_first_run_wizard.reg >C:\\Users\\${guest_user}\\ievms.bat"
