@@ -192,6 +192,26 @@ wait_for_shutdown() {
     done
 }
 
+execute_task_and_shutdown() {
+    local vm=${1}
+    shift
+    local task="${ievms_home}/task.bat"
+    printf "" >$task
+    for line in "$@"; do
+        printf "${line}\r\n" >>$task
+    done
+    printf "shutdown.exe /s /f /t 0\r\n" >>$task
+    copy_to_vm2 "${vm}" "/Users/${guest_user}/ievms.bat" "${task}"
+    
+    guest_control_exec "${vm}" "schtasks.exe" /run /tn ievms
+
+    wait_for_shutdown "${vm}"
+}
+
+do_shutdown() {
+    execute_task_and_shutdown "${1}"
+}
+
 # Pause execution until guest control is available for a virtual machine.
 wait_for_guestcontrol() {
     while true ; do
@@ -203,14 +223,22 @@ wait_for_guestcontrol() {
 
 # Find or download the ievms control ISO.
 find_iso() {
-    local url="https://dl.dropboxusercontent.com/u/463624/ievms-control-${ievms_version}.iso"
-    local dev_iso="${orig_cwd}/ievms-control.iso" # Use local iso if in ievms dev root
-    if [[ -f "${dev_iso}" ]]
+    iso="${ievms_home}/ievms-control.iso"
+}
+
+build_control_iso() {
+    local saved_cwd=`pwd`
+    cd "${orig_cwd}"
+    vagrant up
+    vagrant destroy -f
+    mv "ievms-control.iso" "${ievms_home}/ievms-control.iso"
+    cd "${saved_cwd}"
+}
+
+check_control_iso() {
+    if [[ ! -f "${ievms_home}/ievms-control.iso" ]]
     then
-        iso=$dev_iso
-    else
-        iso="${ievms_home}/ievms-control-${ievms_version}.iso"
-        download "ievms control ISO" "${url}" "${iso}" "6699cb421fc2f56e854fd3f5e143e84c"
+        build_control_iso
     fi
 }
 
@@ -260,7 +288,13 @@ start_vm() {
 # Copy a file to the virtual machine from the ievms home folder.
 copy_to_vm() {
     log "Copying ${2} to ${3}"
-    guest_control_exec "${1}" cmd.exe /c copy "E:\\${2}" "${3}"
+    local drive=${4:-'E:'}
+    guest_control_exec "${1}" cmd.exe /c copy "${drive}\\${2}" "${3}"
+}
+
+copy_to_vm2() {
+    VBoxManage guestcontrol "${1}" --username "${guest_user}" --password "${guest_pass}" \
+        copyto --target-directory "${2}" "${3}"
 }
 
 # Execute a command with arguments on a virtual machine.
@@ -268,6 +302,7 @@ guest_control_exec() {
     local vm="${1}"
     local image="${2}"
     shift
+    log "guest_control_exec $@"
     VBoxManage guestcontrol "${vm}" run \
         --username "${guest_user}" --password "${guest_pass}" \
         --exe "${image}" -- "$@"
@@ -330,14 +365,7 @@ install_ie_win7() { # vm url md5
     copy_to_vm "${1}" "${src}" "${dest}"
 
     log "Installing IE"
-    guest_control_exec "${1}" "cmd.exe" /c \
-        "echo ${dest} /passive /norestart >C:\\Users\\${guest_user}\\ievms.bat"
-    guest_control_exec "${1}" "cmd.exe" /c \
-        "echo shutdown.exe /s /f /t 0 >>C:\\Users\\${guest_user}\\ievms.bat"
-    #guest_control_exec "${1}" "cmd.exe" /c "C:\\Users\\${guest_user}\\ievms.bat"
-    guest_control_exec "${1}" "schtasks.exe" /run /tn ievms
-
-    wait_for_shutdown "${1}"
+    execute_task_and_shutdown "${1}" "${dest} /passive /norestart"
 }
 
 # Build an ievms virtual machine given the IE version desired.
@@ -423,8 +451,20 @@ build_ievm() {
         VBoxManage sharedfolder add "${vm}" --automount --name ievms \
             --hostpath "${ievms_home}"
 
+        log "Ensuring correct boot sequence"
+        VBoxManage modifyvm "${vm}" --boot1 dvd --boot2 disk
+
         log "Building ${vm} VM"
         declare -F "build_ievm_ie${1}" && "build_ievm_ie${1}"
+
+        #log "Statically map shared folder to Z: drive"
+        #start_vm "${vm}"
+        #wait_for_guestcontrol "${vm}"
+        #guest_control_exec "${vm}" "cmd.exe" /c net use 'Z:' '\\vboxsrv\ievms'
+        #do_shutdown "${vm}"
+
+        log "Instaling latest JDK"
+        install_java "${vm}"
 
         log "Tagging VM with ievms version"
         VBoxManage setextradata "${vm}" "ievms" "{\"version\":\"${ievms_version}\"}"
@@ -482,61 +522,69 @@ build_ievm_ie10() {
 build_ievm_ie11() {
     boot_auto_ga "IE11 - Win7"
 
-    ex_disable_uac_w7 "IE11 - Win7"
+    #ex_disable_uac_w7 "IE11 - Win7"
 
     install_ie_win7 "IE11 - Win7" "https://download.microsoft.com/download/9/2/F/92FC119C-3BCD-476C-B425-038A39625558/IE11-Windows6.1-x86-en-us.exe" "7d3479b9007f3c0670940c1b10a3615f"
 
     ie11_disable_first_run_wizard "IE11 - Win7"
-
-    install_java "IE11 - Win7"
-}
-
-ex_disable_uac_w7() {
-    download "deuac.iso" "https://raw.githubusercontent.com/tka/SeleniumBox/master/deuac.iso" "deuac.iso" "fb680c7aa6bbbe72b769482b1097c0c7"
-    attach "${1}" "${ievms_home}/deuac.iso" "DeUAC iso"
-    start_vm "${1}"
-    wait_for_shutdown "${1}"
-    eject "${1}" "DeUAC iso"
 }
 
 ie11_disable_first_run_wizard() {
     #guest_control_exec "${1}" "cmd.exe" /c "robocopy E.\\ C:\\Windows\\PolicyDefinitions\\en-US InetRes.adml /B"
     local reg_file="${ievms_home}/ie11_disable_first_run_wizard.reg"
-    if [ ! -e $reg_file ] ; then
+    if [ ! -e "${reg_file}" ] ; then
         printf "Windows Registry Editor Version 5.00\r\n\r\n" >$reg_file
         printf "[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Internet Explorer\Main]\r\n" >>$reg_file
         printf "\"DisableFirstRunCustomize\"=dword:00000001\r\n" >>$reg_file
     fi
 
     start_vm "${1}"
-    wait_for_guestcontrol "${1}"    
+    wait_for_guestcontrol "${1}"
     copy_to_vm "${1}" "ie11_disable_first_run_wizard.reg" "C:\\Users\\${guest_user}\\Desktop\\ie11_disable_first_run_wizard.reg"
-    guest_control_exec "${1}" "cmd.exe" /c \
-        "echo regedit /S C:\\Users\\${guest_user}\\Desktop\\ie11_disable_first_run_wizard.reg >C:\\Users\\${guest_user}\\ievms.bat"
-    guest_control_exec "${1}" "cmd.exe" /c \
-        "echo shutdown.exe /s /f /t 0 >>C:\\Users\\${guest_user}\\ievms.bat"
-    guest_control_exec "${1}" "schtasks.exe" /run /tn ievms
+    
+    execute_task_and_shutdown "${1}" "regedit /S C:\\Users\\${guest_user}\\Desktop\\ie11_disable_first_run_wizard.reg"
+}
 
-    wait_for_shutdown "${1}"
+build_ievm_ieEDGE() {
+    boot_auto_ga "MSEdge - Win10"
 }
 
 install_java() {
-    local src="jre-8u91-windows-i586.exe"
+    local src="jdk-8u92-windows-i586.exe"
     local dest="C:\\Users\\${guest_user}\\Desktop\\${src}"
 
-    download "${src}" "http://javadl.oracle.com/webapps/download/AutoDL?BundleId=210183" "${src}" "b05522d5c65ed51329d74dd1e97b401f"
+    if [ ! -e "${ievms_home}/${src}" ] ; then
+        curl -L --header "Cookie: oraclelicense=accept-securebackup-cookie" "http://download.oracle.com/otn-pub/java/jdk/8u92-b14/${src}" -o "${src}"
+    fi
 
     start_vm "${1}"
     wait_for_guestcontrol "${1}"
-    copy_to_vm "${1}" "${src}" "${dest}"
-    guest_control_exec "${1}" "cmd.exe" /c \
-        "echo ${dest} /s >C:\\Users\\${guest_user}\\ievms.bat"
-    guest_control_exec "${1}" "cmd.exe" /c \
-        "echo shutdown.exe /s /f /t 0 >>C:\\Users\\${guest_user}\\ievms.bat"
-    #guest_control_exec "${1}" "cmd.exe" /c "C:\\Users\\${guest_user}\\ievms.bat"
-    guest_control_exec "${1}" "schtasks.exe" /run /tn ievms
+    copy_to_vm2 "${1}" "/Users/${guest_user}/Desktop/${src}" "${ievms_home}/${src}"
+    execute_task_and_shutdown "${1}" "${dest} /s ADDLOCAL=\"ToolsFeature,SourceFeature,PublicjreFeature\""
+}
 
-    wait_for_shutdown "${1}"
+_install_firefox() {
+    local url="https://download.mozilla.org/?product=${1}&os=win&lang=en-US"
+    local istaller_name="firefox_setup.exe"
+    if [ -e "${installer_name}" ] ; then
+        rm "${installer_name}"
+    fi
+    curl -L "${url}" -o "${installer_name}"
+
+    start_vm "${1}"
+    wait_for_guestcontrol "${1}"
+    local dest="C:\\Users\\${guest_user}\\Desktop\\${installer_name}"
+    copy_to_vm "${1}" "${installer_name}" "${dest}"
+
+    execute_task_and_shutdown "${1}" "start /wait ${dest} -ms"
+}
+
+install_firefox() {
+    _install_firefox "firefox-latest"
+}
+
+install_firefox_esr() {
+    _install_firefox "firefox-esr-latest"
 }
 
 # ## Main Entry Point
@@ -544,6 +592,7 @@ install_java() {
 # Run through all checks to get the host ready for installation.
 check_system
 create_home
+check_control_iso
 check_virtualbox
 check_ext_pack
 check_unar
