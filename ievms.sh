@@ -223,7 +223,9 @@ wait_for_guestcontrol() {
 
 # Find or download the ievms control ISO.
 find_iso() {
-    local url="https://raw.githubusercontent.com/Etiqa/ievms/development/dist/ievms-control.iso"
+    local current_branch=`git rev-parse --abbrev-ref HEAD 2>/dev/null`
+    current_branch=${current_branch:-development} #TODO: switch to master once this feature has been merged into it
+    local url="https://raw.githubusercontent.com/Etiqa/ievms/${current_branch}/dist/ievms-control.iso"
     iso="${ievms_home}/ievms-control.iso"
     download "ievms control ISO" "${url}" "${iso}" "13c67d0c742934910722f563252e6177"
 }
