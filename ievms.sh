@@ -198,7 +198,7 @@ execute_task_and_shutdown() {
     local task="${ievms_home}/task.bat"
     printf "" >$task
     for line in "$@"; do
-        printf "${line}\r\n" >>$task
+        printf '%s\r\n' "${line}" >>$task
     done
     printf "shutdown.exe /s /f /t 0\r\n" >>$task
     copy_to_vm2 "${vm}" "/Users/${guest_user}/ievms.bat" "${task}"
@@ -223,23 +223,9 @@ wait_for_guestcontrol() {
 
 # Find or download the ievms control ISO.
 find_iso() {
+    local url="https://raw.githubusercontent.com/Etiqa/ievms/development/dist/ievms-control.iso"
     iso="${ievms_home}/ievms-control.iso"
-}
-
-build_control_iso() {
-    local saved_cwd=`pwd`
-    cd "${orig_cwd}"
-    vagrant up
-    vagrant destroy -f
-    mv "ievms-control.iso" "${ievms_home}/ievms-control.iso"
-    cd "${saved_cwd}"
-}
-
-check_control_iso() {
-    if [[ ! -f "${ievms_home}/ievms-control.iso" ]]
-    then
-        build_control_iso
-    fi
+    download "ievms control ISO" "${url}" "${iso}" "13c67d0c742934910722f563252e6177"
 }
 
 # Attach a dvd image to the virtual machine.
@@ -463,8 +449,17 @@ build_ievm() {
         #guest_control_exec "${vm}" "cmd.exe" /c net use 'Z:' '\\vboxsrv\ievms'
         #do_shutdown "${vm}"
 
-        log "Instaling latest JDK"
+        log "Installing latest JDK"
         install_java "${vm}"
+
+        log "Installing latest firefox"
+        install_firefox "${vm}"
+
+        log "Installing latest chrome"
+        install_chrome "${vm}"
+
+        log "Restoring UAC"
+        reuac "${vm}"
 
         log "Tagging VM with ievms version"
         VBoxManage setextradata "${vm}" "ievms" "{\"version\":\"${ievms_version}\"}"
@@ -545,8 +540,35 @@ ie11_disable_first_run_wizard() {
     execute_task_and_shutdown "${1}" "regedit /S C:\\Users\\${guest_user}\\Desktop\\ie11_disable_first_run_wizard.reg"
 }
 
+edge_disable_first_run_wizard() {
+    #guest_control_exec "${1}" "cmd.exe" /c "robocopy E.\\ C:\\Windows\\PolicyDefinitions\\en-US InetRes.adml /B"
+
+    #wmic useraccount where name='username' get sid
+
+    local reg_file="${ievms_home}/edge_disable_first_run_wizard.reg"
+    if [ ! -e "${reg_file}" ] ; then
+        printf "Windows Registry Editor Version 5.00\r\n\r\n" >$reg_file
+        printf "[HKEY_CURRENT_USER\SOFTWARE\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppContainer\Storage\microsoft.microsoftedge_8wekyb3d8bbwe\MicrosoftEdge\Main  
+]\r\n" >>$reg_file
+        printf "\"IE10TourNoShow\"=dword:00000001\r\n" >>$reg_file
+    fi
+
+    start_vm "${1}"
+    wait_for_guestcontrol "${1}"
+    copy_to_vm2 "${1}" "/Users/${guest_user}/Desktop/edge_disable_first_run_wizard.reg" "${ievms_home}/edge_disable_first_run_wizard.reg"
+    
+    execute_task_and_shutdown "${1}" "regedit /S C:\\Users\\${guest_user}\\Desktop\\edge_disable_first_run_wizard.reg"
+}
+
 build_ievm_ieEDGE() {
     boot_auto_ga "MSEdge - Win10"
+    edge_disable_first_run_wizard "MSEdge - Win10"
+}
+
+reuac() {
+    start_vm "${1}"
+    wait_for_guestcontrol "${1}"
+    execute_task_and_shutdown "${1}" 'regedit.exe /S C:\reuac.reg'
 }
 
 install_java() {
@@ -564,27 +586,63 @@ install_java() {
 }
 
 _install_firefox() {
-    local url="https://download.mozilla.org/?product=${1}&os=win&lang=en-US"
-    local istaller_name="firefox_setup.exe"
-    if [ -e "${installer_name}" ] ; then
-        rm "${installer_name}"
-    fi
-    curl -L "${url}" -o "${installer_name}"
+    local product=$2
+    local installer_name="${product}.exe"
 
     start_vm "${1}"
     wait_for_guestcontrol "${1}"
     local dest="C:\\Users\\${guest_user}\\Desktop\\${installer_name}"
-    copy_to_vm "${1}" "${installer_name}" "${dest}"
+    copy_to_vm2 "${1}" "/Users/${guest_user}/Desktop/${installer_name}" "${ievms_home}/${installer_name}"
 
-    execute_task_and_shutdown "${1}" "start /wait ${dest} -ms"
+    execute_task_and_shutdown "${1}" "start /wait ${dest} -ms" \
+        "IF NOT DEFINED PROGRAMFILES(x86) (SET \"PROGRAMFILES(x86)=%PROGRAMFILES%\")" \
+        "echo [XRE] >\"%PROGRAMFILES(x86)%\\Mozilla Firefox\\browser\\override.ini\"" \
+        "echo EnableProfileMigrator=false >>\"%PROGRAMFILES(x86)%\\Mozilla Firefox\\browser\\override.ini\"" \
+        "echo // required comment line >\"%PROGRAMFILES(x86)%\\Mozilla Firefox\\mozilla.cfg\"" \
+        "echo lockPref(\"browser.shell.checkDefaultBrowser\", false); >>\"%PROGRAMFILES(x86)%\\Mozilla Firefox\\mozilla.cfg\"" \
+        "echo // required comment line >\"%PROGRAMFILES(x86)%\\Mozilla Firefox\\defaults\\pref\\autoconfig.js\"" \
+        "echo pref(\"general.config.filename\", \"mozilla.cfg\"); >>\"%PROGRAMFILES(x86)%\\Mozilla Firefox\\defaults\\pref\\autoconfig.js\"" \
+        "echo pref(\"general.config.obscure_value\", 0); >>\"%PROGRAMFILES(x86)%\\Mozilla Firefox\\defaults\\pref\\autoconfig.js\""
 }
 
 install_firefox() {
-    _install_firefox "firefox-latest"
+    _install_firefox "${1}" "firefox-latest"
 }
 
 install_firefox_esr() {
-    _install_firefox "firefox-esr-latest"
+    _install_firefox "${1}" "firefox-esr-latest"
+}
+
+install_chrome() {
+    local installer_name="googlechromestandaloneenterprise.msi"
+    start_vm "${1}"
+    wait_for_guestcontrol "${1}"
+    local dest="C:\\Users\\${guest_user}\\Desktop\\${installer_name}"
+    copy_to_vm2 "${1}" "/Users/${guest_user}/Desktop/${installer_name}" "${ievms_home}/${installer_name}"
+
+    execute_task_and_shutdown "${1}" "start /wait msiexec /i ${dest} /passive /norestart"
+}
+
+download_latest_firefox() {
+    log "Downloading latest firefox installer"
+    local product=$1
+    local url="https://download.mozilla.org/?product=${product}&os=win&lang=en-US"
+    local installer_name="${product}.exe"
+    if [ -e "${installer_name}" ] ; then
+        rm "${installer_name}"
+    fi
+    curl -L "${url}" -o "${installer_name}"
+}
+
+download_latest_chrome() {
+    log "Downloading latest chrome installer"
+    local url="https://dl.google.com/tag/s/appguid%3D%7B8A69D345-D564-463C-AFF1-A69D9E530F96%7D%26iid%3D%7B8CC83703-DE8E-0E3B-BC00-3F378AF2045E%7D%26lang%3Den%26browser%3D0%26usagestats%3D0%26appname%3DGoogle%2520Chrome%26needsadmin%3Dprefers/dl/chrome/install/googlechromestandaloneenterprise.msi"
+    #"https://dl.google.com/tag/s/appguid%3D%7B8A69D345-D564-463C-AFF1-A69D9E530F96%7D%26iid%3D%7B8CC83703-DE8E-0E3B-BC00-3F378AF2045E%7D%26lang%3Den%26browser%3D0%26usagestats%3D0%26appname%3DGoogle%2520Chrome%26needsadmin%3Dprefers%26ap%3Dx64-stable/dl/chrome/install/googlechromestandaloneenterprise64.msi"
+    local installer_name="googlechromestandaloneenterprise.msi"
+    if [ -e "${installer_name}" ] ; then
+        rm "${installer_name}"
+    fi
+    curl -L "${url}" -o "${installer_name}"
 }
 
 # ## Main Entry Point
@@ -592,10 +650,12 @@ install_firefox_esr() {
 # Run through all checks to get the host ready for installation.
 check_system
 create_home
-check_control_iso
 check_virtualbox
 check_ext_pack
 check_unar
+
+download_latest_firefox "firefox-latest"
+download_latest_chrome
 
 # Install each requested virtual machine sequentially.
 all_versions="6 7 8 9 10 11 EDGE"

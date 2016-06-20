@@ -2,12 +2,12 @@
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
     <Date>2013-06-20T12:19:16.22375</Date>
-    <Author>IE9Win7\IEUser</Author>
+    <Author>IEUser</Author>
   </RegistrationInfo>
   <Triggers />
   <Principals>
     <Principal id="Author">
-      <UserId>IE9Win7\IEUser</UserId>
+      <UserId>IEUser</UserId>
       <LogonType>Password</LogonType>
       <RunLevel>HighestAvailable</RunLevel>
     </Principal>
