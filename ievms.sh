@@ -460,6 +460,9 @@ build_ievm() {
         log "Installing latest chrome"
         install_chrome "${vm}"
 
+        log "Installing Selenium"
+        install_selenium "${vm}"
+
         log "Restoring UAC"
         reuac "${vm}"
 
@@ -625,6 +628,68 @@ install_chrome() {
     execute_task_and_shutdown "${1}" "start /wait msiexec /i ${dest} /passive /norestart"
 }
 
+set_bridged_network() {
+    VBoxManage modifyvm "${1}" --nic1 bridged --bridgeadapter1 "${nic_bridge}"
+    start_vm "${1}"
+    wait_for_guestcontrol "${1}"
+    execute_task_and_shutdown "${1}" \
+        "reg export \"HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\NetworkList\\Profiles\" C:\\Users\\${guest_user}\\Desktop\\netloc.reg /y"
+    start_vm "${1}"
+    wait_for_guestcontrol "${1}"
+    VBoxManage guestcontrol "${1}" --username "${guest_user}" --password "${guest_pass}" copyfrom --target-directory "${ievms_home}/netloc.reg.in" "/Users/${guest_user}/Desktop/netloc.reg"
+    if [ ! -e "${ievms_home}/netloc.py" ] ; then
+        echo "with open('netloc.reg.in', 'rb') as fin:" >"${ievms_home}/netloc.py"
+        echo " with open('netloc.reg.out', 'w') as fout:" >>"${ievms_home}/netloc.py"
+        echo "  input = fin.read().decode('UTF-16LE') # keeps BOM" >>"${ievms_home}/netloc.py"
+        echo "  input_lines = input.split('\r\n')" >>"${ievms_home}/netloc.py"
+        echo "  output_lines = []" >>"${ievms_home}/netloc.py"
+        echo "  for l in input_lines:" >>"${ievms_home}/netloc.py"
+        echo "   if l == '\"Category\"=dword:00000000':" >>"${ievms_home}/netloc.py"
+        echo "    output_lines.append('\"Category\"=dword:00000001')" >>"${ievms_home}/netloc.py"
+        echo "    output_lines.append('\"CategoryType\"=dword:00000000')" >>"${ievms_home}/netloc.py"
+        echo "    output_lines.append('\"IconType\"=dword:00000000')" >>"${ievms_home}/netloc.py"
+        echo "   else:" >>"${ievms_home}/netloc.py"
+        echo "    output_lines.append(l)" >>"${ievms_home}/netloc.py"
+        echo "  output = '\r\n'.join(output_lines)" >>"${ievms_home}/netloc.py"
+        echo "  fout.write(output.encode('UTF-16LE'))" >>"${ievms_home}/netloc.py"
+    fi
+    python "${ievms_home}/netloc.py"
+    
+    copy_to_vm2 "${1}" "/Users/${guest_user}/Desktop/netloc.reg" "${ievms_home}/netloc.reg.out"
+    execute_task_and_shutdown "${1}" "regedit /S C:\\Users\\${guest_user}\\Desktop\\netloc.reg"
+}
+
+install_selenium() {
+    local selenium_server="selenium-server-standalone-2.53.0.jar"
+    download "Selenium standalone server JAR" \
+        "http://selenium-release.storage.googleapis.com/2.53/${selenium_server}" "${selenium_server}" "774efe2d84987fb679f2dea038c2fa32"
+    local chromedriver="chromedriver_win32.zip"
+    download "Selenium Chrome Driver" \
+        "http://chromedriver.storage.googleapis.com/2.22/${chromedriver}" "${chromedriver}" "c5962f884bd58987b1ef0fa04c6a3ce5"
+    unzip -u "${chromedriver}"
+    local iedriver32="IEDriverServer_Win32_2.53.1.zip"
+    download "Selenium IE Driver 32bit" \
+        "http://selenium-release.storage.googleapis.com/2.53/${iedriver32}" "${iedriver32}" "35ac005f9088f2995d6a1cdc384fe4cb"
+    unzip -u "${iedriver32}" && mv "IEDriverServer.exe" "IEDriverServer32.exe"
+    local iedriver64="IEDriverServer_x64_2.53.1.zip"
+    download "Selenium IE Driver 64bit" \
+        "http://selenium-release.storage.googleapis.com/2.53/${iedriver64}" "${iedriver64}" "6c822788a04e4e8d4727dc4c08c0102a"
+    unzip -u "${iedriver64}" && mv "IEDriverServer.exe" "IEDriverServer64.exe"
+
+    log "Switching to bridged networking mode"
+    set_bridged_network "${1}"
+
+    start_vm "${1}"
+    wait_for_guestcontrol "${1}"
+    copy_to_vm2 "${1}" "/Users/${guest_user}/${selenium_server}" "${ievms_home}/${selenium_server}"
+    copy_to_vm2 "${1}" "/Users/${guest_user}/chromedriver.exe" "${ievms_home}/chromedriver.exe"
+    copy_to_vm2 "${1}" "/Users/${guest_user}/IEDriverServer32.exe" "${ievms_home}/IEDriverServer32.exe"
+    copy_to_vm2 "${1}" "/Users/${guest_user}/IEDriverServer64.exe" "${ievms_home}/IEDriverServer64.exe"
+
+    local selenium_dir="C:\\Users\\${guest_user}"
+    execute_task_and_shutdown "${1}" "IF NOT DEFINED PROGRAMFILES(x86) (rename ${selenium_dir}\\IEDriverServer32.exe IEDriverServer.exe) ELSE (rename ${selenium_dir}\\IEDriverServer64.exe IEDriverServer.exe)"
+}
+
 download_latest_firefox() {
     log "Downloading latest firefox installer"
     local product=$1
@@ -647,6 +712,21 @@ download_latest_chrome() {
     curl -L "${url}" -o "${installer_name}"
 }
 
+get_host_nic() {
+    case $kernel in
+        Darwin) nic_bridge_id=`route -n get 0.0.0.0 2>/dev/null | awk '/interface: / {print $2}'` ;;
+        Linux) nic_bridge_id=`route | grep default | sed 's/ [ ]*/;/g' | cut -d ';' -f 8` ;;
+    esac
+    nic_bridge=$(vboxmanage list bridgedifs | grep -E "Name:[ ]+${nic_bridge_id}:" | sed -E 's/Name:[ ]+//g')
+}
+
+get_host_ip_addr() {
+    case $kernel in
+        Darwin) host_ipaddr=`ifconfig "${nic_bridge_id}" | grep 'inet ' | sed -E "s/[[:space:]]+/ /g" | cut -d ' ' -f 3` ;;
+        Linux) host_ipaddr=`ifconfig "${nic_bridge_id}" | grep 'inet ' | sed  -E "s/[[:space:]]+/ /g" | cut -d ' ' -f 3 | sed 's/addr://'` ;;
+    esac
+}
+
 # ## Main Entry Point
 
 # Run through all checks to get the host ready for installation.
@@ -658,6 +738,9 @@ check_unar
 
 download_latest_firefox "firefox-latest"
 download_latest_chrome
+
+get_host_nic
+get_host_ip_addr
 
 # Install each requested virtual machine sequentially.
 all_versions="6 7 8 9 10 11 EDGE"
