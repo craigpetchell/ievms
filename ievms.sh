@@ -194,8 +194,9 @@ wait_for_shutdown() {
 
 execute_task_and_shutdown() {
     local vm=${1}
+    local vm_dir=${vm/ - /_}
     shift
-    local task="${ievms_home}/task.bat"
+    local task="${ievms_home}/${vm_dir}/task.bat"
     printf "" >$task
     for line in "$@"; do
         printf '%s\r\n' "${line}" >>$task
@@ -249,7 +250,6 @@ eject() {
 # a batch file that runs on first boot to install guest additions and activate
 # the OS if possible.
 boot_ievms() {
-    find_iso
     attach "${1}" "${iso}" "ievms control ISO"
     start_vm "${1}"
     wait_for_shutdown "${1}"
@@ -636,30 +636,31 @@ set_bridged_network() {
         "reg export \"HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\NetworkList\\Profiles\" C:\\Users\\${guest_user}\\Desktop\\netloc.reg /y"
     start_vm "${1}"
     wait_for_guestcontrol "${1}"
-    VBoxManage guestcontrol "${1}" --username "${guest_user}" --password "${guest_pass}" copyfrom --target-directory "${ievms_home}/netloc.reg.in" "/Users/${guest_user}/Desktop/netloc.reg"
-    if [ ! -e "${ievms_home}/netloc.py" ] ; then
-        echo "with open('netloc.reg.in', 'rb') as fin:" >"${ievms_home}/netloc.py"
-        echo " with open('netloc.reg.out', 'w') as fout:" >>"${ievms_home}/netloc.py"
-        echo "  input = fin.read().decode('UTF-16LE') # keeps BOM" >>"${ievms_home}/netloc.py"
-        echo "  input_lines = input.split('\r\n')" >>"${ievms_home}/netloc.py"
-        echo "  output_lines = []" >>"${ievms_home}/netloc.py"
-        echo "  for l in input_lines:" >>"${ievms_home}/netloc.py"
-        echo "   if l == '\"Category\"=dword:00000000':" >>"${ievms_home}/netloc.py"
-        echo "    output_lines.append('\"Category\"=dword:00000001')" >>"${ievms_home}/netloc.py"
-        echo "    output_lines.append('\"CategoryType\"=dword:00000000')" >>"${ievms_home}/netloc.py"
-        echo "    output_lines.append('\"IconType\"=dword:00000000')" >>"${ievms_home}/netloc.py"
-        echo "   else:" >>"${ievms_home}/netloc.py"
-        echo "    output_lines.append(l)" >>"${ievms_home}/netloc.py"
-        echo "  output = '\r\n'.join(output_lines)" >>"${ievms_home}/netloc.py"
-        echo "  fout.write(output.encode('UTF-16LE'))" >>"${ievms_home}/netloc.py"
-    fi
-    python "${ievms_home}/netloc.py"
+    local vm_dir=${1/ - /_}
+    VBoxManage guestcontrol "${1}" --username "${guest_user}" --password "${guest_pass}" copyfrom --target-directory "${ievms_home}/${vm_dir}/netloc.reg.in" "/Users/${guest_user}/Desktop/netloc.reg"
+    python "${ievms_home}/netloc.py" "${vm_dir}"
     
-    copy_to_vm2 "${1}" "/Users/${guest_user}/Desktop/netloc.reg" "${ievms_home}/netloc.reg.out"
+    copy_to_vm2 "${1}" "/Users/${guest_user}/Desktop/netloc.reg" "${ievms_home}/${vm_dir}/netloc.reg.out"
     execute_task_and_shutdown "${1}" "regedit /S C:\\Users\\${guest_user}\\Desktop\\netloc.reg"
 }
 
 install_selenium() {
+    log "Switching to bridged networking mode"
+    set_bridged_network "${1}"
+
+    start_vm "${1}"
+    wait_for_guestcontrol "${1}"
+    copy_to_vm2 "${1}" "/Users/${guest_user}/${selenium_server}" "${ievms_home}/${selenium_server}"
+    copy_to_vm2 "${1}" "/Users/${guest_user}/chromedriver.exe" "${ievms_home}/chromedriver.exe"
+    copy_to_vm2 "${1}" "/Users/${guest_user}/IEDriverServer32.exe" "${ievms_home}/IEDriverServer32.exe"
+    copy_to_vm2 "${1}" "/Users/${guest_user}/IEDriverServer64.exe" "${ievms_home}/IEDriverServer64.exe"
+
+    local selenium_dir="C:\\Users\\${guest_user}"
+    execute_task_and_shutdown "${1}" "IF NOT DEFINED PROGRAMFILES(x86) (rename ${selenium_dir}\\IEDriverServer32.exe IEDriverServer.exe) ELSE (rename ${selenium_dir}\\IEDriverServer64.exe IEDriverServer.exe)"
+}
+
+download_selenium() {
+    log "Downloading Selenium and WebDrivers"
     local selenium_server="selenium-server-standalone-2.53.0.jar"
     download "Selenium standalone server JAR" \
         "http://selenium-release.storage.googleapis.com/2.53/${selenium_server}" "${selenium_server}" "774efe2d84987fb679f2dea038c2fa32"
@@ -675,19 +676,6 @@ install_selenium() {
     download "Selenium IE Driver 64bit" \
         "http://selenium-release.storage.googleapis.com/2.53/${iedriver64}" "${iedriver64}" "6c822788a04e4e8d4727dc4c08c0102a"
     unzip -u "${iedriver64}" && mv "IEDriverServer.exe" "IEDriverServer64.exe"
-
-    log "Switching to bridged networking mode"
-    set_bridged_network "${1}"
-
-    start_vm "${1}"
-    wait_for_guestcontrol "${1}"
-    copy_to_vm2 "${1}" "/Users/${guest_user}/${selenium_server}" "${ievms_home}/${selenium_server}"
-    copy_to_vm2 "${1}" "/Users/${guest_user}/chromedriver.exe" "${ievms_home}/chromedriver.exe"
-    copy_to_vm2 "${1}" "/Users/${guest_user}/IEDriverServer32.exe" "${ievms_home}/IEDriverServer32.exe"
-    copy_to_vm2 "${1}" "/Users/${guest_user}/IEDriverServer64.exe" "${ievms_home}/IEDriverServer64.exe"
-
-    local selenium_dir="C:\\Users\\${guest_user}"
-    execute_task_and_shutdown "${1}" "IF NOT DEFINED PROGRAMFILES(x86) (rename ${selenium_dir}\\IEDriverServer32.exe IEDriverServer.exe) ELSE (rename ${selenium_dir}\\IEDriverServer64.exe IEDriverServer.exe)"
 }
 
 download_latest_firefox() {
@@ -736,8 +724,28 @@ check_virtualbox
 check_ext_pack
 check_unar
 
+echo "import sys" >"${ievms_home}/netloc.py"
+echo "import os.path" >>"${ievms_home}/netloc.py"
+echo "vm_dir = sys.argv[1]" >>"${ievms_home}/netloc.py"
+echo "with open(os.path.join(vm_dir, 'netloc.reg.in'), 'rb') as fin:" >>"${ievms_home}/netloc.py"
+echo " with open(os.path.join(vm_dir, 'netloc.reg.out'), 'w') as fout:" >>"${ievms_home}/netloc.py"
+echo "  input = fin.read().decode('UTF-16LE') # keeps BOM" >>"${ievms_home}/netloc.py"
+echo "  input_lines = input.split('\r\n')" >>"${ievms_home}/netloc.py"
+echo "  output_lines = []" >>"${ievms_home}/netloc.py"
+echo "  for l in input_lines:" >>"${ievms_home}/netloc.py"
+echo "   if l == '\"Category\"=dword:00000000':" >>"${ievms_home}/netloc.py"
+echo "    output_lines.append('\"Category\"=dword:00000001')" >>"${ievms_home}/netloc.py"
+echo "    output_lines.append('\"CategoryType\"=dword:00000000')" >>"${ievms_home}/netloc.py"
+echo "    output_lines.append('\"IconType\"=dword:00000000')" >>"${ievms_home}/netloc.py"
+echo "   else:" >>"${ievms_home}/netloc.py"
+echo "    output_lines.append(l)" >>"${ievms_home}/netloc.py"
+echo "  output = '\r\n'.join(output_lines)" >>"${ievms_home}/netloc.py"
+echo "  fout.write(output.encode('UTF-16LE'))" >>"${ievms_home}/netloc.py"
+
+find_iso
 download_latest_firefox "firefox-latest"
 download_latest_chrome
+download_selenium
 
 get_host_nic
 get_host_ip_addr
@@ -747,7 +755,7 @@ all_versions="6 7 8 9 10 11 EDGE"
 for ver in ${IEVMS_VERSIONS:-$all_versions}
 do
     log "Building IE ${ver} VM"
-    build_ievm $ver
+    build_ievm $ver >"build_ievm_${ver}.log" &
 done
 
 # We made it!
