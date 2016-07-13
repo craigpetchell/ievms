@@ -660,7 +660,7 @@ set_bridged_network() {
 }
 
 install_selenium() {
-    local selenium_server="selenium-server-standalone-2.53.0.jar"
+    local selenium_server="selenium-server-standalone-2.53.1.jar"
     download "Selenium standalone server JAR" \
         "http://selenium-release.storage.googleapis.com/2.53/${selenium_server}" "${selenium_server}" "774efe2d84987fb679f2dea038c2fa32"
     local chromedriver="chromedriver_win32.zip"
