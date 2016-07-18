@@ -404,7 +404,8 @@ build_ievm() {
     local url
     if [ "${os}" == "Win10" ]
     then
-        url="https://az792536.vo.msecnd.net/vms/VMBuild_20150801/VirtualBox/MSEdge/Mac/Microsoft%20Edge.Win10.For.Mac.VirtualBox.20150801.zip"
+        url="https://az792536.vo.msecnd.net/vms/VMBuild_20160322/VirtualBox/MSEdge/MSEdge.Win10TH2.VirtualBox.zip"
+        ova="MSEdge - Win10TH2.ova"
     else
         url="http://virtualization.modern.ie/vhd/IEKitV1_Final/VirtualBox/OSX/${archive}"
     fi
@@ -416,7 +417,7 @@ build_ievm() {
         IE8_Win7.zip) md5="21b0aad3d66dac7f88635aa2318a3a55" ;;
         IE9_Win7.zip) md5="58d201fe7dc7e890ad645412264f2a2c" ;;
         IE10_Win8.zip) md5="cc4e2f4b195e1b1e24e2ce6c7a6f149c" ;;
-        MSEdge_Win10.zip) md5="08652f43a63e0bf74af746a0dc7b9188" ;;
+        MSEdge_Win10.zip) md5="4002ca8238181312a1f4dab04632a2c1" ;;
     esac
     
     log "Checking for existing OVA at ${ievms_home}/${ova}"
@@ -662,15 +663,18 @@ set_bridged_network() {
 install_selenium() {
     local selenium_server="selenium-server-standalone-2.53.1.jar"
     download "Selenium standalone server JAR" \
-        "http://selenium-release.storage.googleapis.com/2.53/${selenium_server}" "${selenium_server}" "774efe2d84987fb679f2dea038c2fa32"
+        "http://selenium-release.storage.googleapis.com/2.53/${selenium_server}" "${selenium_server}" "63a0b96eab18f8420b9bba2f0f5d380c"
+
     local chromedriver="chromedriver_win32.zip"
     download "Selenium Chrome Driver" \
         "http://chromedriver.storage.googleapis.com/2.22/${chromedriver}" "${chromedriver}" "c5962f884bd58987b1ef0fa04c6a3ce5"
     unzip -u "${chromedriver}"
+
     local iedriver32="IEDriverServer_Win32_2.53.1.zip"
     download "Selenium IE Driver 32bit" \
         "http://selenium-release.storage.googleapis.com/2.53/${iedriver32}" "${iedriver32}" "35ac005f9088f2995d6a1cdc384fe4cb"
     unzip -u "${iedriver32}" && mv "IEDriverServer.exe" "IEDriverServer32.exe"
+
     local iedriver64="IEDriverServer_x64_2.53.1.zip"
     download "Selenium IE Driver 64bit" \
         "http://selenium-release.storage.googleapis.com/2.53/${iedriver64}" "${iedriver64}" "6c822788a04e4e8d4727dc4c08c0102a"
@@ -685,6 +689,19 @@ install_selenium() {
     copy_to_vm2 "${1}" "/Users/${guest_user}/chromedriver.exe" "${ievms_home}/chromedriver.exe"
     copy_to_vm2 "${1}" "/Users/${guest_user}/IEDriverServer32.exe" "${ievms_home}/IEDriverServer32.exe"
     copy_to_vm2 "${1}" "/Users/${guest_user}/IEDriverServer64.exe" "${ievms_home}/IEDriverServer64.exe"
+
+    if [ "${os}" == "Win10" ] ; then
+        local edgedriver="MicrosoftWebDriver.msi"
+        download "Selenium Microsoft Edge Web Driver" \
+            "https://download.microsoft.com/download/C/0/7/C07EBF21-5305-4EC8-83B1-A6FCC8F93F45/MicrosoftWebDriver.msi" "${edgedriver}" "11cf449e6518a5b014a98ef3fb39c795"
+        copy_to_vm2 "${1}" "/Users/${guest_user}/${edgedriver}" "${ievms_home}/${edgedriver}"
+
+        execute_task_and_shutdown "${1}" "start /wait msiexec /i C:\\Users\\${guest_user}\\${edgedriver} /passive /norestart" \
+            "copy \"C:\\Program Files (x86)\\Microsoft Web Driver\\MicrosoftWebDriver.exe\" C:\\Users\\${guest_user}\\"
+
+        start_vm "${1}"
+        wait_for_guestcontrol "${1}"
+    fi
 
     local selenium_dir="C:\\Users\\${guest_user}"
     execute_task_and_shutdown "${1}" "IF NOT DEFINED PROGRAMFILES(x86) (rename ${selenium_dir}\\IEDriverServer32.exe IEDriverServer.exe) ELSE (rename ${selenium_dir}\\IEDriverServer64.exe IEDriverServer.exe)"
