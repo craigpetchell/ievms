@@ -163,7 +163,7 @@ check_ext_pack() {
 
 # Download and install `unar` from Google Code.
 install_unar() {
-    local url="http://wakaba.c3.cx/releases/TheUnarchiver/unar1.10.1.zip"
+    local url="http://unarchiver.c3.cx/downloads/unar1.10.1.zip"
     local archive=`basename "${url}"`
 
     download "unar" "${url}" "${archive}" "d548661e4b6c33512074df81e39ed874"
@@ -405,6 +405,7 @@ build_ievm() {
     if [ "${os}" == "Win10" ]
     then
         url="https://az792536.vo.msecnd.net/vms/VMBuild_20160322/VirtualBox/MSEdge/MSEdge.Win10TH2.VirtualBox.zip"
+        #url="https://az792536.vo.msecnd.net/vms/VMBuild_20160802/VirtualBox/MSEdge/MSEdge.Win10_RS1.VirtualBox.zip"
         ova="MSEdge - Win10TH2.ova"
     else
         url="http://virtualization.modern.ie/vhd/IEKitV1_Final/VirtualBox/OSX/${archive}"
@@ -418,6 +419,7 @@ build_ievm() {
         IE9_Win7.zip) md5="58d201fe7dc7e890ad645412264f2a2c" ;;
         IE10_Win8.zip) md5="cc4e2f4b195e1b1e24e2ce6c7a6f149c" ;;
         MSEdge_Win10.zip) md5="4002ca8238181312a1f4dab04632a2c1" ;;
+        #MSEdge_Win10.zip) md5="467d8286cb8cbed90f0761c3566abdda" ;;
     esac
     
     log "Checking for existing OVA at ${ievms_home}/${ova}"
@@ -667,7 +669,7 @@ install_selenium() {
 
     local chromedriver="chromedriver_win32.zip"
     download "Selenium Chrome Driver" \
-        "http://chromedriver.storage.googleapis.com/2.22/${chromedriver}" "${chromedriver}" "c5962f884bd58987b1ef0fa04c6a3ce5"
+        "http://chromedriver.storage.googleapis.com/2.24/${chromedriver}" "${chromedriver}" "1a46c83926f891d502427df10b4646b9"
     unzip -u "${chromedriver}"
 
     local iedriver32="IEDriverServer_Win32_2.53.1.zip"
