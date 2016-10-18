@@ -469,6 +469,12 @@ build_ievm() {
         log "Restoring UAC"
         reuac "${vm}"
 
+        log "Set screen resolution to 1024x768"
+        start_vm "${vm}"
+        wait_for_guestcontrol "${vm}"
+        VBoxManage controlvm "${vm}" setvideomodehint 1024 768 32
+        execute_task_and_shutdown "${vm}" ""
+
         log "Tagging VM with ievms version"
         VBoxManage setextradata "${vm}" "ievms" "{\"version\":\"${ievms_version}\"}"
         
